@@ -1,0 +1,112 @@
+model SupplyChain
+
+/*****************************/
+/* Definition of port types  */
+/*****************************/
+port type ePort            // Port with no associated data.
+port type onePort(int i)   // Port associated with an integer data.
+port type towPort(int i, int j) 
+
+/*********************************/
+/* Definition of connector types */
+/*********************************/
+connector type SendRec(intPort s, intPort r) // Rendezvous between s, r
+  define [ s r ]
+  data int tmp
+  on s r
+    down {r.i = s.i;}
+end
+
+connector type Singleton(ePort p) // Singleton
+ define [p]
+end
+
+connector type one(onePort p) // Singleton
+ define [p]
+end
+
+connector type two(towPort p) // Singleton
+ define [p]
+end
+
+/***************************************/
+/* Definition of atomic type: Supply Chain */
+/***************************************/
+atomic type SC
+  data int cPrice
+  data int price
+  data int prod
+  data int prod_limit
+  data int all_prod
+  data int prod_threshold=8
+  data int stakeholder_id   //1:vendors- 2: Trans, 3: refineries, 4: point of sale
+  data int alertCode // 1: fraud, 2: overcapacity, 
+  data int item_id
+  data bool fraud_flag=FALSE
+  data bool over_prod_flag=FALSE
+  data bool delivered_flag= TRUE //for testing
+  
+  export port ePort confirm
+  export port ePort alert
+  export port onePort check_prod_limit(prod)
+  export port onePort overcapacity(all_prod)
+  export port onePort check_f(stakeholder_id)
+  export port towPort log(stakeholder_id, item_id)
+  export port towPort pay(stakeholder_id, stakeholder_id)
+
+  place Start,Log, Payment, Alert, Fraud, S&D 
+
+  initial to Start
+  on log from Start to Log 
+  on confirm from Log to Start
+  on check_f from Start to Fraud provided stakeholder_id==2 || stakeholder_id==3 do fraud_flag=TRUE; // keep the flag false to test no fraud
+  on alert from Fraud to Alert provided fraud_flag==TRUE do alertCode=1;
+  on confirm from Alert to Start 
+  on check_prod_limit from Start to S&D provided prod>prod_limit do over_prod_flag=TRUE // for testing
+  on alert from S&D to Alert provided over_prod_flag=TRUE do alertCode=2;
+  on overcapacity from Start to Alert provided all_prod>prod_threshold
+  on pay from Start to Payment provided delivered_flag==TRUE
+  on confirm from Payment to Start
+end
+
+/***************************************/
+/* Definition of atomic type: Consumer */
+/***************************************/
+atomic type Consumer
+  data int y = 0
+  export port intPort cons(y)
+  export port ePort work
+
+  place CONSUME, WORK
+
+  initial to CONSUME
+  on cons from CONSUME to WORK
+  on work from WORK to CONSUME
+end
+
+/*************************************/
+/* definition of compound type: Team */
+/*************************************/
+
+compound type Team
+
+  component SC s
+
+
+ // connector SendRec Communicate(P.prod, C.cons)
+  connector Singleton s_confirm(s.confirm)
+  connector Singleton s_alert(s.alert)
+  connector onePort s_check_prod_limit(s.check_prod_limit)
+  connector onePort s_overcapacity(s.overcapacity)
+  connector onePort s_check_f(s.check_f)
+  connector towPort s_log(s.log)
+  connector towPort s_pay(s.pay)
+
+end
+
+/* instantiation of the root component */
+
+component Team T
+
+end
+

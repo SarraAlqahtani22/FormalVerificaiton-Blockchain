@@ -1,0 +1,155 @@
+model SupplyChain
+
+/*****************************/
+/* Definition of port types  */
+/*****************************/
+port type ePort            // Port with no associated data.
+port type onePort(int i)   // Port associated with an integer data.
+port type towPort(int i, int j) 
+
+
+
+connector type Singleton(ePort p) // Singleton
+ define [p]
+end
+
+connector type one(onePort p) // Singleton
+ define [p]
+end
+
+connector type two(towPort p) // Singleton
+ define [p]
+end
+
+
+/*********************************/
+/* Definition of connector types for communicating parameters */
+/*********************************/
+connector type SendRec(onePort s, onePort v) // Rendezvous between s, v
+  define [ s v ]
+//data int tmp
+  on s v
+    down {v.i = s.i;}
+end
+ 
+ 
+ connector type SendRec2(towPort s, towPort v) // Rendezvous between s, v
+  define [ s v ]
+//data int tmp
+  on s v
+    down { s.i=v.i; s.j=v.j;}
+end
+/***************************************/
+/* Definition of atomic type: Supply Chain */
+/***************************************/
+atomic type SC
+  data int cPrice
+  data int price
+  data int prod
+  data int prod_limit=8
+  data int all_prod
+  data int prod_threshold=8
+  data int stakeholder_id   //1:vendors- 2: Trans, 3: refineries, 4: point of sale
+  data int alertCode // 1: fraud, 2: overcapacity, 
+  data int item_id
+  data bool fraud_flag=false
+  data bool over_prod_flag=false
+  data bool delivered_flag= true //for testing
+  
+  export port ePort confirm
+  export port ePort alert
+  export port onePort check_prod_limit(prod)
+  export port onePort overcapacity(all_prod)
+  export port onePort set_limit(prod_limit)
+  export port onePort check_f(stakeholder_id)
+  export port towPort log(stakeholder_id, item_id)
+  export port towPort log_prod(stakeholder_id, prod)
+  export port  onePort pay(stakeholder_id)
+
+  place Start,Log,Log_Prod, Payment, Alert, Fraud, SD, Limit
+
+  initial to Start
+  on log from Start to Log
+  on log_prod from Start to Log_Prod   do all_prod+=1;
+  on confirm from Log to Start
+  on confirm from Log_Prod to Start 
+  on check_f from Start to Fraud provided stakeholder_id==2 || stakeholder_id==3 do fraud_flag=true; // keep the flag false to test no fraud
+  on alert from Fraud to Alert provided fraud_flag==true do alertCode=1;
+  on confirm from Alert to Start 
+  on check_prod_limit from Start to SD provided prod>prod_limit do over_prod_flag=true; // for testing
+  on alert from SD to Alert provided over_prod_flag==true do alertCode=2;
+  on overcapacity from Start to Alert provided all_prod>prod_threshold
+  on pay from Start to Payment provided delivered_flag==true
+  on confirm from Payment to Start
+  on set_limit from Start to Limit
+  on confirm from Limit to Start
+end
+
+
+
+/***************************************/
+/* Definition of atomic type: Vendor */
+/***************************************/
+atomic type Vendor
+  data int VendorId=1
+  data int limit
+  data int prod
+  data bool produced=false
+
+  
+  export port ePort confirm
+  export port ePort create
+  export port onePort recieve_limit(limit)
+  export port towPort send(VendorId, prod)
+
+  place Start,Create,Send, Receive 
+
+  initial to Start
+  on create from Start to Create provided prod+1<=limit do {prod+=1; produced=true;}
+  on confirm from Create to Start
+  on send from Start to Send provided produced==true do produced=false;
+  on confirm from Send to Start 
+  on recieve_limit from Start to Receive
+  on confirm from Receive to Start
+end
+
+
+/*************************************/
+/* definition of compound type: Scenario */
+/*************************************/
+
+compound type Scenario
+
+  component SC s
+  component Vendor v
+
+
+ // connector SendRec Communicate(P.prod, C.cons)
+  //supply chain functions
+  connector Singleton s_confirm(s.confirm)
+  connector Singleton s_alert(s.alert)
+  connector one s_check_prod_limit(s.check_prod_limit)
+  connector one s_overcapacity(s.overcapacity)
+  connector one s_check_f(s.check_f)
+  //connector one s_set_limit(s.set_limit)
+  connector two s_log(s.log)
+  connector two s_log_prod(s.log_prod)
+  connector one s_pay(s.pay)
+  
+  //vendor functions
+  connector Singleton v_create(v.create)
+  connector Singleton v_confirm(v.confirm)
+
+ // synchronization functions
+ 
+ connector SendRec supply_vendor_limit(s.set_limit, v.recieve_limit)
+ connector SendRec2 supply_vendor_log(s.log_prod, v.send)
+ 
+end
+
+/* instantiation of the root component */
+
+component Scenario senario1
+
+end
+
